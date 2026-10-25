@@ -1,10 +1,6 @@
 services:
   person-management-service:
     build: .
-    # Publish the API on the same port used by local Uvicorn development.
-    ports:
-      - "8000:8000"
-    # Keep profile credentials in the local environment file, not in this manifest.
     env_file:
       - .env
     environment:
@@ -15,6 +11,25 @@ services:
       PROD_PRIMARY_DATABASE_URL: sqlite:////app/data/person_management_prod.db
     volumes:
       - person-data:/app/data
+    networks:
+      - person-service
+
+  mtls-gateway:
+    image: nginx:1.29-alpine
+    depends_on:
+      - person-management-service
+    ports:
+      - "8443:8443"
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./certs/server.crt:/etc/nginx/tls/server.crt:ro
+      - ./certs/server.key:/etc/nginx/tls/server.key:ro
+      - ./certs/ca.crt:/etc/nginx/tls/ca.crt:ro
+    networks:
+      - person-service
 
 volumes:
   person-data:
+
+networks:
+  person-service:

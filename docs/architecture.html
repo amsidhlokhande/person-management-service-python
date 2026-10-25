@@ -44,7 +44,7 @@
 </head>
 <body>
   <h1>Person Management Service Architecture</h1>
-  <p class="hint">Choose a view, zoom with the controls or mouse wheel, drag to pan, and select a diagram node for details.</p>
+  <p class="hint">Requests enter through the Nginx mTLS gateway. Select a view, zoom, drag to pan, or select a node for details.</p>
   <nav class="tabs" aria-label="Diagram type">
     <button type="button" data-diagram="hld" aria-pressed="true">High-level design</button>
     <button type="button" data-diagram="lld" aria-pressed="false">Low-level design</button>
@@ -63,62 +63,56 @@
 
   <script type="text/plain" id="source-hld">
 flowchart LR
-    Client[API client] -->|HTTP / Bearer JWT| API[FastAPI service]
+    Client[API client with client.p12] -->|HTTPS with client certificate| Gateway[Nginx mTLS gateway]
+    Gateway -->|Private network and verified identity headers| API[FastAPI service]
     API --> Observability[Correlation middleware and structured logs]
-    API --> Auth[Token endpoints and JWT validation]
-    API --> Routes[Health and person routes]
+    API --> Routes[Health and people routes]
     Routes --> Business[Person and health services]
     Business --> DataAccess[Person repository]
     DataAccess --> Registry[Profile client registry]
-    Registry --> Clients[Database and external clients]
+    Registry --> Clients[Database clients]
     Clients --> DB[(Configured databases)]
   </script>
   <script type="text/plain" id="source-lld">
 flowchart TD
-    Factory[app.app:create_app and lifespan] --> Middleware[CorrelationIdMiddleware]
-    Middleware --> Interceptor[e2e/interceptor RequestResponseInterceptor]
-    Interceptor --> Router[FastAPI routes]
-    Router --> Security[config/security.py]
-    Router --> DTO[model/person_model.py]
-    Router --> Service[service/person_service.py]
-    Service --> Repository[repo/person_repo.py]
-    Application[Application composition root] --> ClientRegistry[client/client_registry.py]
+    Client[API client with client.p12] --> Gateway[Nginx mTLS gateway]
+    Gateway -->|Verified client identity| API[FastAPI application]
+    API --> Middleware[CorrelationIdMiddleware]
+    Middleware --> Interceptor[RequestResponseInterceptor]
+    Interceptor --> Router[Health and people routes]
+    Router --> Security[Client certificate dependency]
+    Router --> DTO[Person request/response models]
+    Router --> Service[Person and health services]
+    Service --> Repository[Person repository]
+    Application[Application lifespan] --> ClientRegistry[Database client registry]
     Repository --> ClientRegistry
-    HealthService[service/health_service.py] --> ClientRegistry
-    ClientRegistry --> DatabaseClients[client/*_database_client.py]
-    Repository --> Entity[entity/person_entity.py]
-    Router --> Exceptions[exception/global_handler.py]
-    Exceptions --> Templates[model/response_model.py]
-    Configuration[constants.py profile settings] --> ClientRegistry
-    Configuration --> Security
+    ClientRegistry --> DatabaseClients[Configured database clients]
+    Repository --> Entity[Person entity]
+    Router --> Exceptions[Centralized exception handlers]
+    Configuration[Profile settings] --> ClientRegistry
   </script>
   <script type="text/plain" id="source-sequence">
 sequenceDiagram
-    participant C as Client
-    participant M as Correlation middleware
-    participant I as Request/response interceptor
-    participant R as Person route
-    participant S as JWT security dependency
+    participant C as Client with client.p12
+    participant G as Nginx mTLS gateway
+    participant A as FastAPI service
+    participant S as Client certificate dependency
     participant B as Person service
     participant D as Repository
-    participant DB as Profile database client
-    C->>M: CRUD request and optional X-Correlation-ID
-    M->>M: Validate or generate correlation ID
-    M->>I: Forward request with request context
-    I->>I: Log safe request metadata and field names
-    I->>R: Forward request
-    R->>S: Validate Bearer access token
-    S-->>R: Authenticated subject
-    R->>B: Validate DTO and execute operation
-    B->>D: Execute repository operation
-    D->>DB: Query or mutate record
-    DB-->>D: Entity / result
-    D-->>B: Result or domain exception
-    B-->>R: Result or domain exception
-    R-->>I: Response
-    I->>I: Log safe response metadata and field names
-    I-->>M: Forward response
-    M-->>C: Response plus X-Correlation-ID
+    participant DB as Database
+    C->>G: HTTPS request with client certificate
+    G->>G: Verify client chain, expiry, and purpose
+    G->>A: Forward request with overwritten identity headers
+    A->>S: Require verification SUCCESS and certificate subject
+    S-->>A: Verified client identity
+    A->>B: Validate request and execute operation
+    B->>D: Read or update person data
+    D->>DB: Query or commit
+    DB-->>D: Result
+    D-->>B: Result
+    B-->>A: Response
+    A-->>G: HTTP response over private network
+    G-->>C: HTTPS response
   </script>
   <script>
     mermaid.initialize({ startOnLoad: false, securityLevel: "strict", theme: "default" });

@@ -14,7 +14,6 @@ from e2e.interceptor.request_response_interceptor import RequestResponseIntercep
 from e2e.logging.correlation_middleware import CorrelationIdMiddleware
 from e2e.logging.trace import log_event
 from e2e.repo.person_repo import PersonRepository
-from e2e.route.auth_route import router as auth_router
 from e2e.route.health_route import router as health_router
 from e2e.route.person_route import router as person_router
 from e2e.service.health_service import HealthService
@@ -74,28 +73,26 @@ def create_app() -> FastAPI:
     application = CorrelatedFastAPI(
         title="Person Management Service",
         description=(
-            "A layered REST API for managing people. Use the authentication endpoints "
-            "to obtain a Bearer token before calling protected people operations. "
-            "Query, path, form, and JSON body fields include descriptions and examples."
+            "A layered REST API for managing people. Requests must pass through "
+            "the mTLS gateway with an approved client certificate. "
+            "Query, path, and JSON body fields include descriptions and examples."
         ),
         version="1.0.0",
         docs_url="/swagger",
         openapi_tags=[
-            {"name": "health", "description": "Public health and architecture pages."},
             {
-                "name": "authentication",
-                "description": "Issue and refresh JWT access credentials.",
+                "name": "health",
+                "description": "Health and architecture pages protected by the deployment gateway.",
             },
             {
                 "name": "people",
-                "description": "Bearer-token-protected person directory operations.",
+                "description": "Client-certificate-protected person directory operations.",
             },
         ],
         lifespan=lifespan,
     )
     register_exception_handlers(application)
     application.include_router(health_router)
-    application.include_router(auth_router, prefix="/api/v1")
     application.include_router(person_router, prefix="/api/v1")
     return application
 

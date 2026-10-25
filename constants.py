@@ -32,18 +32,6 @@ class Settings:
     database_clients: tuple[DatabaseClientSettings, ...]
     # Named client used by the person repository for CRUD operations.
     primary_database_client: str
-    # Private signing key used for access and refresh JWTs.
-    jwt_secret: str
-    # Supported HMAC algorithm used to sign and verify JWTs.
-    jwt_algorithm: str
-    # Access-token expiry, expressed in minutes.
-    access_token_minutes: int
-    # Refresh-token expiry, expressed in days.
-    refresh_token_days: int
-    # Single configured account allowed to request tokens.
-    auth_username: str
-    # Password for that account; never log or return this value.
-    auth_password: str
     # Whether the startup lifecycle inserts the development sample record.
     seed_data: bool
 
@@ -51,9 +39,9 @@ class Settings:
 def load_settings() -> Settings:
     """Load active-profile properties and validate them before app startup.
 
-    ``SPRING_PROFILES_ACTIVE`` selects the prefix used for all settings. Required
-    credentials and every configured database URL must exist for that prefix.
-    Production has stricter secret checks, and seeding must be explicitly enabled.
+    ``SPRING_PROFILES_ACTIVE`` selects the prefix used for all settings. Every
+    configured database URL must exist for that prefix, and seeding must be
+    explicitly enabled outside development.
     """
     profile = os.getenv("SPRING_PROFILES_ACTIVE", "DEV").strip().upper()
     if profile not in {"DEV", "UAT", "PROD"}:
@@ -66,18 +54,6 @@ def load_settings() -> Settings:
             raise ValueError(f"Missing required environment variable: {profile}_{name}")
         return value
 
-    # Keep development defaults convenient while rejecting unsupported algorithms.
-    secret = required("JWT_SECRET")
-    algorithm = os.getenv(f"{profile}_JWT_ALGORITHM", "HS256")
-    if algorithm not in {"HS256", "HS384", "HS512"}:
-        raise ValueError("JWT algorithm must be one of HS256, HS384, or HS512")
-
-    access_token_minutes = int(os.getenv(f"{profile}_ACCESS_TOKEN_MINUTES", "30"))
-    refresh_token_days = int(os.getenv(f"{profile}_REFRESH_TOKEN_DAYS", "7"))
-    if access_token_minutes <= 0 or refresh_token_days <= 0:
-        raise ValueError("JWT expiration settings must be positive integers")
-
-    auth_password = required("AUTH_PASSWORD")
     client_names = [
         name.strip().lower()
         for name in required("DATABASE_CLIENTS").split(",")
@@ -107,13 +83,6 @@ def load_settings() -> Settings:
             f"{profile}_PRIMARY_DATABASE_CLIENT must name one of "
             f"{profile}_DATABASE_CLIENTS"
         )
-    if profile == "PROD":
-        # Do not let the sample credentials accidentally become production secrets.
-        if secret.startswith("replace-") or len(secret) < 32:
-            raise ValueError("Configure a unique production JWT secret of at least 32 characters")
-        if auth_password.startswith("change-") or len(auth_password) < 12:
-            raise ValueError("Configure a non-placeholder production password of at least 12 characters")
-
     # Seeding is opt-in except where the DEV .env explicitly enables it.
     seed_value = os.getenv(f"{profile}_SEED_DATA", "false").lower()
     if seed_value not in {"true", "false"}:
@@ -126,13 +95,6 @@ def load_settings() -> Settings:
         # Resolve a named set so one profile can initialize and monitor several stores.
         database_clients=database_clients,
         primary_database_client=primary_database_client,
-        jwt_secret=secret,
-        jwt_algorithm=algorithm,
-        # Keep expiry values as integers in their documented time units.
-        access_token_minutes=access_token_minutes,
-        refresh_token_days=refresh_token_days,
-        auth_username=required("AUTH_USERNAME"),
-        auth_password=auth_password,
         # Convert the validated textual flag into a boolean setting.
         seed_data=seed_value == "true",
     )
