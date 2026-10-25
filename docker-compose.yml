@@ -1,0 +1,20 @@
+services:
+  person-management-service:
+    build: .
+    # Publish the API on the same port used by local Uvicorn development.
+    ports:
+      - "8000:8000"
+    # Keep profile credentials in the local environment file, not in this manifest.
+    env_file:
+      - .env
+    environment:
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-DEV}
+      # Override the active profile's configured primary SQLite URL for persistent storage.
+      DEV_PRIMARY_DATABASE_URL: sqlite:////app/data/person_management.db
+      UAT_PRIMARY_DATABASE_URL: sqlite:////app/data/person_management_uat.db
+      PROD_PRIMARY_DATABASE_URL: sqlite:////app/data/person_management_prod.db
+    volumes:
+      - person-data:/app/data
+
+volumes:
+  person-data:

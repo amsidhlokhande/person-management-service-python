@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Person Management Service Architecture</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: Segoe UI, Arial, sans-serif;
+      color: #172b4d;
+      background: #f5f7fa;
+    }
+    body { margin: 0 auto; max-width: 1100px; padding: 24px; }
+    h1 { margin-top: 0; }
+    .toolbar, .tabs { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0; }
+    button {
+      border: 1px solid #9aa9bc;
+      border-radius: 5px;
+      background: white;
+      color: inherit;
+      cursor: pointer;
+      padding: 8px 12px;
+    }
+    button[aria-pressed="true"] { background: #dcecff; border-color: #2870bd; }
+    #viewport {
+      height: 65vh;
+      min-height: 380px;
+      overflow: hidden;
+      border: 1px solid #c8d2df;
+      border-radius: 8px;
+      background: white;
+      cursor: grab;
+      touch-action: none;
+    }
+    #viewport:active { cursor: grabbing; }
+    #diagram { transform-origin: 0 0; }
+    #diagram svg { max-width: none; }
+    #selection { min-height: 1.5em; }
+    .hint { color: #52657d; }
+    .error { color: #a12622; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <h1>Person Management Service Architecture</h1>
+  <p class="hint">Choose a view, zoom with the controls or mouse wheel, drag to pan, and select a diagram node for details.</p>
+  <nav class="tabs" aria-label="Diagram type">
+    <button type="button" data-diagram="hld" aria-pressed="true">High-level design</button>
+    <button type="button" data-diagram="lld" aria-pressed="false">Low-level design</button>
+    <button type="button" data-diagram="sequence" aria-pressed="false">Request sequence</button>
+  </nav>
+  <div class="toolbar" aria-label="Diagram controls">
+    <button type="button" id="zoom-in" aria-label="Zoom in">+</button>
+    <button type="button" id="zoom-out" aria-label="Zoom out">−</button>
+    <button type="button" id="reset">Reset view</button>
+  </div>
+  <main id="viewport" aria-label="Interactive Mermaid diagram">
+    <div id="diagram" role="img"></div>
+  </main>
+  <p id="selection" aria-live="polite">Select a node to see its label.</p>
+  <p id="error" class="error" role="alert"></p>
+
+  <script type="text/plain" id="source-hld">
+flowchart LR
+    Client[API client] -->|HTTP / Bearer JWT| API[FastAPI service]
+    API --> Observability[Correlation middleware and structured logs]
+    API --> Auth[Token endpoints and JWT validation]
+    API --> Routes[Health and person routes]
+    Routes --> Business[Person and health services]
+    Business --> DataAccess[Person repository]
+    DataAccess --> Registry[Profile client registry]
+    Registry --> Clients[Database and external clients]
+    Clients --> DB[(Configured databases)]
+  </script>
+  <script type="text/plain" id="source-lld">
+flowchart TD
+    Factory[app.app:create_app and lifespan] --> Middleware[CorrelationIdMiddleware]
+    Middleware --> Interceptor[e2e/interceptor RequestResponseInterceptor]
+    Interceptor --> Router[FastAPI routes]
+    Router --> Security[config/security.py]
+    Router --> DTO[model/person_model.py]
+    Router --> Service[service/person_service.py]
+    Service --> Repository[repo/person_repo.py]
+    Application[Application composition root] --> ClientRegistry[client/client_registry.py]
+    Repository --> ClientRegistry
+    HealthService[service/health_service.py] --> ClientRegistry
+    ClientRegistry --> DatabaseClients[client/*_database_client.py]
+    Repository --> Entity[entity/person_entity.py]
+    Router --> Exceptions[exception/global_handler.py]
+    Exceptions --> Templates[model/response_model.py]
+    Configuration[constants.py profile settings] --> ClientRegistry
+    Configuration --> Security
+  </script>
+  <script type="text/plain" id="source-sequence">
+sequenceDiagram
+    participant C as Client
+    participant M as Correlation middleware
+    participant I as Request/response interceptor
+    participant R as Person route
+    participant S as JWT security dependency
+    participant B as Person service
+    participant D as Repository
+    participant DB as Profile database client
+    C->>M: CRUD request and optional X-Correlation-ID
+    M->>M: Validate or generate correlation ID
+    M->>I: Forward request with request context
+    I->>I: Log safe request metadata and field names
+    I->>R: Forward request
+    R->>S: Validate Bearer access token
+    S-->>R: Authenticated subject
+    R->>B: Validate DTO and execute operation
+    B->>D: Execute repository operation
+    D->>DB: Query or mutate record
+    DB-->>D: Entity / result
+    D-->>B: Result or domain exception
+    B-->>R: Result or domain exception
+    R-->>I: Response
+    I->>I: Log safe response metadata and field names
+    I-->>M: Forward response
+    M-->>C: Response plus X-Correlation-ID
+  </script>
+  <script>
+    mermaid.initialize({ startOnLoad: false, securityLevel: "strict", theme: "default" });
+
+    const viewport = document.getElementById("viewport");
+    const diagram = document.getElementById("diagram");
+    const selection = document.getElementById("selection");
+    const error = document.getElementById("error");
+    let scale = 1;
+    let offsetX = 16;
+    let offsetY = 16;
+    let pointer;
+
+    function updateTransform() {
+      diagram.style.transform = `translate(${offsetX}px, ${offsetY}px) scale(${scale})`;
+    }
+
+    async function renderDiagram(name) {
+      error.textContent = "";
+      selection.textContent = "Select a node to see its label.";
+      document.querySelectorAll("[data-diagram]").forEach((button) => {
+        button.setAttribute("aria-pressed", String(button.dataset.diagram === name));
+      });
+      const source = document.getElementById(`source-${name}`).textContent.trim();
+      try {
+        const { svg } = await mermaid.render(`diagram-${name}`, source);
+        diagram.innerHTML = svg;
+        diagram.querySelectorAll(".node, .actor, .label").forEach((node) => {
+          node.addEventListener("click", () => {
+            selection.textContent = `Selected: ${node.textContent.trim()}`;
+          });
+        });
+        scale = 1;
+        offsetX = 16;
+        offsetY = 16;
+        updateTransform();
+      } catch (renderError) {
+        error.textContent = `Diagram could not be rendered: ${renderError.message}`;
+      }
+    }
+
+    document.querySelectorAll("[data-diagram]").forEach((button) => {
+      button.addEventListener("click", () => renderDiagram(button.dataset.diagram));
+    });
+    document.getElementById("zoom-in").addEventListener("click", () => {
+      scale = Math.min(3, scale + 0.15);
+      updateTransform();
+    });
+    document.getElementById("zoom-out").addEventListener("click", () => {
+      scale = Math.max(0.4, scale - 0.15);
+      updateTransform();
+    });
+    document.getElementById("reset").addEventListener("click", () => renderDiagram(
+      document.querySelector('[data-diagram][aria-pressed="true"]').dataset.diagram
+    ));
+    viewport.addEventListener("wheel", (event) => {
+      event.preventDefault();
+      scale = Math.max(0.4, Math.min(3, scale + (event.deltaY < 0 ? 0.1 : -0.1)));
+      updateTransform();
+    }, { passive: false });
+    viewport.addEventListener("pointerdown", (event) => {
+      pointer = { x: event.clientX, y: event.clientY, offsetX, offsetY };
+      viewport.setPointerCapture(event.pointerId);
+    });
+    viewport.addEventListener("pointermove", (event) => {
+      if (!pointer) return;
+      offsetX = pointer.offsetX + event.clientX - pointer.x;
+      offsetY = pointer.offsetY + event.clientY - pointer.y;
+      updateTransform();
+    });
+    viewport.addEventListener("pointerup", () => { pointer = undefined; });
+    renderDiagram("hld");
+  </script>
+</body>
+</html>
